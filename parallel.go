@@ -22,14 +22,19 @@ type Conductor struct {
 	log       *zap.Logger
 	stop      chan os.Signal
 	processes []Process
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // NewConductor initializes a new Conductor with provided processes and sets up signal handling.
-func NewConductor(processes ...Process) *Conductor {
+func NewConductor(ctx context.Context, processes ...Process) *Conductor {
+	ctx, cancel := context.WithCancel(ctx)
 	r := &Conductor{
 		log:       zap.NewExample(),
 		stop:      make(chan os.Signal, 1),
 		processes: processes,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 
 	signal.Notify(r.stop, os.Interrupt, syscall.SIGTERM)
@@ -38,11 +43,11 @@ func NewConductor(processes ...Process) *Conductor {
 }
 
 // Run starts all processes in separate goroutines.
-func (r *Conductor) Run(ctx context.Context) *Conductor {
+func (r *Conductor) Run() *Conductor {
 	for _, process := range r.processes {
 		go func(p Process) {
 			r.log.Info("running", zap.String("process", p.Name()))
-			if err := p.Run(ctx); err != nil {
+			if err := p.Run(r.ctx); err != nil {
 				r.log.Panic("failed to run", zap.String("process", p.Name()), zap.Error(err))
 			}
 
@@ -55,7 +60,7 @@ func (r *Conductor) Run(ctx context.Context) *Conductor {
 
 // Stop stops all processes gracefully within a 5-second timeout.
 func (r *Conductor) Stop() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
 	defer cancel()
 
 	for _, process := range r.processes {
@@ -66,6 +71,8 @@ func (r *Conductor) Stop() {
 
 		r.log.Info("stopped", zap.String("process", process.Name()))
 	}
+
+	r.cancel()
 }
 
 // ThenStop waits for an OS signal and then stops all processes.
