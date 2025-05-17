@@ -21,7 +21,6 @@ type processError struct {
 }
 
 type Conductor struct {
-	// TODO: add a logger interface
 	log       *zap.Logger
 	stop      chan os.Signal
 	errors    chan processError
@@ -29,8 +28,13 @@ type Conductor struct {
 }
 
 func NewConductor(processes ...Process) *Conductor {
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+
 	r := &Conductor{
-		log:       zap.NewExample(),
+		log:       logger,
 		stop:      make(chan os.Signal),
 		errors:    make(chan processError, len(processes)),
 		processes: processes,
