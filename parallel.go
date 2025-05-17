@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"go.uber.org/zap"
@@ -40,7 +41,7 @@ func NewConductor(processes ...Process) *Conductor {
 		processes: processes,
 	}
 
-	signal.Notify(r.stop, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(r.stop, syscall.SIGINT, syscall.SIGTERM)
 
 	return r
 }
@@ -60,8 +61,6 @@ func (c *Conductor) Run(ctx context.Context) *Conductor {
 
 				return
 			}
-
-			c.log.Info("successfully ran", zap.String("process", process.Name()))
 		}(p)
 	}
 
@@ -72,12 +71,25 @@ func (c *Conductor) ThenStop() {
 	<-c.stop
 	c.log.Info("received stop signal, stopping all processes")
 
-	for _, process := range c.processes {
-		process.Stop()
-		c.log.Info("stopped", zap.String("process", process.Name()))
-	}
+	var wg sync.WaitGroup
+	for _, p := range c.processes {
+		wg.Add(1)
+		go func(process Process) {
+			defer wg.Done()
 
+			process.Stop()
+			c.log.Info("process stopped", zap.String("process", process.Name()))
+		}(p)
+	}
+	wg.Wait()
+
+	signal.Stop(c.stop)
 	close(c.stop)
+	close(c.errors)
+}
+
+func (c *Conductor) Errors() <-chan processError {
+	return c.errors
 }
 
 func (c *Conductor) monitor(ctx context.Context) {
