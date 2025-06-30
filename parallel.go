@@ -7,6 +7,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/rs/zerolog"
 )
 
 type Process interface {
@@ -27,7 +28,7 @@ type Conductor struct {
 	processes []Process
 }
 
-func New(processes ...Process) *Conductor {
+func NewConductor(processes ...Process) *Conductor {
 	log := zerolog.New(os.Stdout).With().Str("name", "conductor").Logger()
 	log.Info().Msg("initializing conductor")
 
