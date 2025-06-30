@@ -7,7 +7,6 @@ import (
 	"sync"
 	"syscall"
 
-	"go.uber.org/zap"
 )
 
 type Process interface {
@@ -22,20 +21,18 @@ type processError struct {
 }
 
 type Conductor struct {
-	log       *zap.Logger
+	log       zerolog.Logger
 	stop      chan os.Signal
 	errors    chan processError
 	processes []Process
 }
 
-func NewConductor(processes ...Process) *Conductor {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panic(err)
-	}
+func New(processes ...Process) *Conductor {
+	log := zerolog.New(os.Stdout).With().Str("name", "conductor").Logger()
+	log.Info().Msg("initializing conductor")
 
 	r := &Conductor{
-		log:       logger,
+		log:       log,
 		stop:      make(chan os.Signal),
 		errors:    make(chan processError, len(processes)),
 		processes: processes,
@@ -51,7 +48,9 @@ func (c *Conductor) Run(ctx context.Context) *Conductor {
 
 	for _, p := range c.processes {
 		go func(process Process) {
-			c.log.Info("running", zap.String("process", process.Name()))
+			c.log.Info().
+				Str("process", process.Name()).
+				Msg("starting process")
 
 			if err := process.Run(ctx); err != nil {
 				c.errors <- processError{
@@ -69,7 +68,7 @@ func (c *Conductor) Run(ctx context.Context) *Conductor {
 
 func (c *Conductor) ThenStop() {
 	<-c.stop
-	c.log.Info("received stop signal, stopping all processes")
+	c.log.Info().Msg("received stop signal, stopping all processes")
 
 	var wg sync.WaitGroup
 	for _, p := range c.processes {
@@ -78,7 +77,9 @@ func (c *Conductor) ThenStop() {
 			defer wg.Done()
 
 			process.Stop()
-			c.log.Info("process stopped", zap.String("process", process.Name()))
+			c.log.Info().
+				Str("process", process.Name()).
+				Msg("stopped process")
 		}(p)
 	}
 	wg.Wait()
@@ -95,10 +96,13 @@ func (c *Conductor) Errors() <-chan processError {
 func (c *Conductor) monitor(ctx context.Context) {
 	select {
 	case err := <-c.errors:
-		c.log.Error("error occurred", zap.String("process", err.process.Name()), zap.Error(err.err))
+		c.log.Error().
+			Str("process", err.process.Name()).
+			Err(err.err).
+			Msg("process error")
 		c.stop <- syscall.SIGTERM
 	case <-ctx.Done():
-		c.log.Warn("context canceled")
+		c.log.Warn().Msg("context cancelled")
 		c.stop <- syscall.SIGTERM
 	}
 }
