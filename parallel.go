@@ -6,13 +6,14 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 )
 
 type Process interface {
 	Run(ctx context.Context) error
-	Stop()
+	Stop(ctx context.Context) error
 	Name() string
 }
 
@@ -71,16 +72,25 @@ func (c *Conductor) ThenStop() {
 	<-c.stop
 	c.log.Info().Msg("received stop signal, stopping all processes")
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	var wg sync.WaitGroup
 	for _, p := range c.processes {
 		wg.Add(1)
 		go func(process Process) {
 			defer wg.Done()
 
-			process.Stop()
-			c.log.Info().
-				Str("process", process.Name()).
-				Msg("stopped process")
+			if err := process.Stop(ctx); err != nil {
+				c.log.Error().
+					Str("process", process.Name()).
+					Err(err).
+					Msg("failed to stop process")
+			} else {
+				c.log.Info().
+					Str("process", process.Name()).
+					Msg("stopped process")
+			}
 		}(p)
 	}
 	wg.Wait()
