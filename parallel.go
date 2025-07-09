@@ -29,9 +29,9 @@ type Conductor struct {
 	processes []Process
 }
 
-func NewConductor(processes ...Process) *Conductor {
-	log := zerolog.New(os.Stdout).With().Str("name", "conductor").Logger()
-	log.Info().Msg("initializing conductor")
+func NewConductor(ctx context.Context, processes ...Process) *Conductor {
+	log := zerolog.Ctx(ctx).With().Str("engine", "conductor").Logger()
+	log.Info().Msg("initializing conductor engine")
 
 	r := &Conductor{
 		log:       log,
@@ -93,11 +93,9 @@ func (c *Conductor) ThenStop() {
 			}
 		}(p)
 	}
-	wg.Wait()
 
+	wg.Wait()
 	signal.Stop(c.stop)
-	close(c.stop)
-	close(c.errors)
 }
 
 func (c *Conductor) Errors() <-chan processError {
@@ -107,13 +105,17 @@ func (c *Conductor) Errors() <-chan processError {
 func (c *Conductor) monitor(ctx context.Context) {
 	select {
 	case err := <-c.errors:
-		c.log.Error().
-			Str("process", err.process.Name()).
-			Err(err.err).
-			Msg("process error")
+		if err.err != nil {
+			c.log.Error().
+				Str("process", err.process.Name()).
+				Err(err.err).
+				Msg("process error")
+		}
+
 		c.stop <- syscall.SIGTERM
 	case <-ctx.Done():
 		c.log.Warn().Msg("context cancelled")
+
 		c.stop <- syscall.SIGTERM
 	}
 }
