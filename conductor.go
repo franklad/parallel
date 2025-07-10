@@ -29,8 +29,8 @@ type Conductor struct {
 	processes []Process
 }
 
-func NewConductor(ctx context.Context, processes ...Process) *Conductor {
-	log := zerolog.Ctx(ctx).With().Str("engine", "conductor").Logger()
+func NewConductor(processes ...Process) *Conductor {
+	log := zerolog.New(os.Stdout).With().Str("engine", "conductor").Logger()
 	log.Info().Msg("initializing conductor engine")
 
 	r := &Conductor{
@@ -41,7 +41,6 @@ func NewConductor(ctx context.Context, processes ...Process) *Conductor {
 	}
 
 	signal.Notify(r.stop, syscall.SIGINT, syscall.SIGTERM)
-
 	return r
 }
 
@@ -70,7 +69,7 @@ func (c *Conductor) Run(ctx context.Context) *Conductor {
 
 func (c *Conductor) ThenStop() {
 	<-c.stop
-	c.log.Info().Msg("received stop signal, stopping all processes")
+	c.log.Warn().Msg("received stop signal, stopping all processes")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -113,9 +112,11 @@ func (c *Conductor) monitor(ctx context.Context) {
 		}
 
 		c.stop <- syscall.SIGTERM
+		return
 	case <-ctx.Done():
 		c.log.Warn().Msg("context cancelled")
 
 		c.stop <- syscall.SIGTERM
+		return
 	}
 }
